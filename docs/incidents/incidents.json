@@ -1,7 +1,7 @@
 {
   "title": "Incident catalog: real breaches to test deception and containment against",
   "updated": "2026-09-21",
-  "purpose": "A curated, extensible list of real incidents whose shape can be reproduced as a lab estate and used to test the two Maplepot questions (is this an attacker? can we burn their time?) plus the prevention question (does the fix hold?). Each entry names the chain, the deception surface, a rak-agent containment fit, and how it maps onto the maple v2 estate stages V1..V10.",
+  "purpose": "A curated, extensible list of real incidents whose shape can be reproduced as a lab estate. Each one exercises the two Maplepot questions (detection and diversion) and the prevention question (does the fix hold), and records the chain, the deception surface, a rak-agent containment fit, and the estate stages it maps onto.",
   "how_to_use": [
     "Pick an entry, reproduce only its SHAPE against a stand-in bug (never the real weaponized exploit), the way the maple-loop-experiment does for the OpenAI case.",
     "For each, define: sanctioned route (REAL) vs attacker route (decoy), the canary/credential that must be earned behind an exploit, and the containment invariant (no decoy can reach REAL or mint a REAL credential).",
@@ -12,7 +12,7 @@
   "legend": {
     "test_priority": "1 = full multi-stage chain, reproduce now; 2 = adaptable, needs a small fixture change; 3 = single primitive / backlog.",
     "ai_agent": "autonomous = the attacker or a major actor was an LLM agent; target = an LLM agent/bot was the victim/pivot; tool = AI coding tool introduced or amplified the bug; none = classic.",
-    "rak_fit": "How rak-agent's kernel policy (exec allowlist, inode-keyed file deny, egress allowlist) or its in-process operation guard would cut the link."
+    "rak_fit": "How rak-agent's kernel policy or its in-process operation guard would cut the link. The kernel policy allows a set of executables, denies files by inode, and allows a set of network endpoints."
   },
   "patterns": {
     "parser_rce_chain": "Untrusted media parsed by memory-unsafe native code gives code exec, which yields a credential, which becomes identity/pivot into a high-value sink.",
@@ -46,7 +46,7 @@
         "Decoy connected-agent endpoint wired to a fake registry so a hijacked session 'publishes' into nothing and trips a tripwire."
       ],
       "rak_fit": [
-        "Decode worker: exec allowlist (only the decoder), inode-keyed deny on the session-secret file, egress off -> the RCE cannot read the secret or call the IdP.",
+        "The decode worker. Allow only the decoder to exec, deny the session-secret file by inode, and turn egress off, so the RCE cannot read the secret or call the IdP.",
         "Bootstrap/interpreter guard so a Python handler cannot shell out to a second interpreter with attacker args."
       ],
       "other_prevention": ["vpatch (bounds check)", "seccomp (kill execve)", "SSO tier segmentation", "connected-agent gating on non-interactive sessions", "registry publish requires CI identity"],
@@ -76,7 +76,7 @@
         "Canary credential in the image worker's mount so a post-RCE read is a 100%-precision tripwire."
       ],
       "rak_fit": [
-        "Image worker is the textbook rak target: exec allowlist, deny the secret/config files by inode, egress allowlist to only the image store.",
+        "The image worker is the textbook rak target. Allow only the decoder to exec, deny the secret and config files by inode, and allow egress to the image store alone.",
         "Would contain the post-exploit stage even when the upstream library is still vulnerable."
       ],
       "other_prevention": ["libheif backport / disable AVIF", "sandboxed decoder with no network", "run in a seccomp profile"],
@@ -134,7 +134,7 @@
         "Poisoned Claude/VS Code config is itself a deception surface: a decoy config that points at canary endpoints."
       ],
       "rak_fit": [
-        "Strongest fit in the catalog. Lifecycle script child processes are exactly the 'untrusted subprocess' rak contains: exec allowlist, deny credential files by inode, egress off/allowlist.",
+        "The strongest fit in the catalog. The lifecycle script child is exactly the untrusted subprocess rak contains. Deny the credential files by inode, keep the exec list tight, and allow egress only to the registry.",
         "Even after the package is installed, the credential harvest and republish cannot happen."
       ],
       "other_prevention": ["--ignore-scripts", "OIDC-scoped publish with provenance", "secret scanning + rotation", "egress filtering on build runners"],
@@ -164,13 +164,13 @@
         "Decoy publish workflow with honey release tokens so a hijacked cache path burns budget and trips a tripwire."
       ],
       "rak_fit": [
-        "Constrain the triager's process: no network except the forge API, file deny on runner credentials, exec allowlist; the cache-poisoning pivot cannot read publish secrets."
+        "Constrain the triager's process. Egress is limited to the forge API, runner credentials are denied by inode, and the exec list is tight, so the cache-poisoning pivot cannot read publish secrets."
       ],
       "other_prevention": ["separate caches per workflow", "least-privilege triage token", "no long-lived PATs", "human gate on publish"],
       "maps_to": ["V5", "V6", "V7"],
       "test_priority": 1,
       "status": "candidate",
-      "notes": "The best pure 'connected agent is the pivot' case besides OpenAI; the triager is a real LLM agent with real publish access, so the confused-deputy model is literal rather than abstracted."
+      "notes": "The best pure 'connected agent is the pivot' case besides OpenAI; the triager is a real LLM agent with real publish access, so the confused-deputy model is literal here."
     },
     {
       "id": "gitlost-github-agentic",
@@ -308,13 +308,13 @@
         "Canary cloud creds in reachable config so any mint/use is a tripwire."
       ],
       "rak_fit": [
-        "Contain the agent's own process tree: exec allowlist, egress allowlist, file deny on credential stores. This is rak's core 'attacker is a process' thesis applied to an LLM agent."
+        "Contain the agent's own process tree. A tight exec list, an egress allowlist, and an inode-keyed deny on the credential stores stop the harvest. This is rak's core thesis, that the attacker is a process, applied to an LLM agent."
       ],
       "other_prevention": ["network segmentation", "short-lived workload identity", "egress monitoring/deny"],
       "maps_to": ["V1", "V7", "V9", "V10"],
       "test_priority": 1,
       "status": "candidate",
-      "notes": "The strongest standalone argument for testing agents as processes rather than as text; pairs directly with rak and with the E12b absorption result."
+      "notes": "The strongest standalone argument for testing agents as processes with real files and network access. Pairs directly with rak and with the E12b absorption result."
     },
     {
       "id": "axios-npm",
@@ -336,7 +336,7 @@
         "Canary developer credentials in the install environment."
       ],
       "rak_fit": [
-        "postinstall child: exec allowlist, egress allowlist to the registry only, file deny on ~/.npmrc and cloud creds."
+        "Contain the postinstall child. Egress goes only to the registry, and ~/.npmrc and the cloud credential files are denied by inode."
       ],
       "other_prevention": ["2FA/hardware keys on publishers", "provenance", "--ignore-scripts"],
       "maps_to": ["V3", "V6", "V7"],
@@ -351,7 +351,7 @@
       "actor": "unattributed",
       "category": "registry_worm",
       "source": "https://www.microsoft.com/en-us/security/blog/2026/07/15/unpacking-the-asyncapi-npm-supply-chain-compromise/",
-      "one_line": "Malicious AsyncAPI package versions delivered their payload at import time rather than install time, evading defenses that only watch lifecycle scripts.",
+      "one_line": "Malicious AsyncAPI package versions delivered their payload when the library was imported, which is later than install time and invisible to checks that watch lifecycle scripts.",
       "chain": {
         "initial_access": "Compromised package published.",
         "identity": "Payload runs in any process that imports the library.",
@@ -360,7 +360,7 @@
       },
       "ai_agent": "none",
       "deception": ["Decoy registry that intercepts the import-time fetch and serves canary payloads."],
-      "rak_fit": ["The importing process is contained regardless of when the payload runs: exec allowlist + egress allowlist + file deny."],
+      "rak_fit": ["The importing process is contained regardless of when the payload runs, through a tight exec list, an egress allowlist, and an inode-keyed file deny."],
       "other_prevention": ["provenance / lockfile pinning", "egress filtering"],
       "maps_to": ["V3", "V6"],
       "test_priority": 3,
@@ -391,7 +391,7 @@
       "maps_to": ["V4", "V7", "V10"],
       "test_priority": 2,
       "status": "candidate",
-      "notes": "Precursor to Klue; useful as a second instance of the same pattern to test whether deception generalizes rather than overfits one incident."
+      "notes": "Precursor to Klue; useful as a second instance of the same pattern to test whether deception generalizes across incidents or overfits this one."
     },
     {
       "id": "deadbugz-mcp",
@@ -413,7 +413,7 @@
         "Route-bound decoy for any MCP server not on the sanctioned list."
       ],
       "rak_fit": [
-        "Constrain the MCP server AND the agent process: file deny on SSH/AWS/K8s config by inode, egress allowlist, exec allowlist. This stops the collection even when the tool description is poisoned."
+        "Constrain both the MCP server and the agent process. Deny the SSH, AWS, and Kubernetes config files by inode, keep egress on an allowlist, and keep the exec list tight. The collection stops even when the tool description is poisoned."
       ],
       "other_prevention": ["allowlist MCP servers", "review config changes", "show tool descriptions to humans", "no ambient creds to agents"],
       "maps_to": ["V5", "V7"],
@@ -428,7 +428,7 @@
       "actor": "Pandex (Alon Hertz)",
       "category": "agent_injection",
       "source": "https://www.tomshardware.com/tech-industry/artificial-intelligence/researchers-easily-trick-fortune-500-companies-ai-agents-into-running-arbitrary-code-supply-chain-attack-via-llms-txt-guidance-file-illustrates-how-data-has-become-code",
-      "one_line": "Manipulated llms.txt guidance files caused agents at named Fortune-500 companies to fetch and run attacker packages across npm, PyPI, RubyGems, NuGet, crates.io, and Packagist, with no prompt injection and no social engineering.",
+      "one_line": "Manipulated llms.txt guidance files caused agents at named Fortune-500 companies to fetch and run attacker packages across npm, PyPI, RubyGems, NuGet, crates.io, and Packagist, using only a poisoned guidance file, without a prompt payload or any social engineering.",
       "chain": {
         "initial_access": "Poisoned llms.txt / docs that agents treat as setup instructions.",
         "identity": "Agent executes install commands with its own environment access.",
@@ -440,7 +440,7 @@
         "Decoy llms.txt / docs endpoint serving canary install instructions; following them is the detection.",
         "Route-bound decoy package registry so the install 'succeeds' against canary packages."
       ],
-      "rak_fit": ["Agent process containment: exec allowlist for package managers, egress allowlist, file deny on credentials."],
+      "rak_fit": ["Contain the agent process. The package managers are the only allowed executables, egress is on an allowlist, and the credential files are denied."],
       "other_prevention": ["treat docs as untrusted input", "pin and verify packages", "agent egress policy"],
       "maps_to": ["V2", "V3", "V6"],
       "test_priority": 2,
@@ -491,7 +491,7 @@
       "maps_to": ["V4", "V7"],
       "test_priority": 3,
       "status": "backlog",
-      "notes": "A client-side identity-theft primitive that fits as an initial-access arm rather than a full chain."
+      "notes": "A client-side identity-theft primitive that feeds as an initial-access arm into one of the chains."
     },
     {
       "id": "openai-rogue-agents-expansion",

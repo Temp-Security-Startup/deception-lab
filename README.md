@@ -1,183 +1,190 @@
 # Deception & Containment Lab
 
-Two small lab estates, each built from the *shape* of a real breach, used to test three
-questions that point-in-time security tools cannot answer:
+We built this on top of someone else's experiment.
 
-1. **Detection:** when an attacker touches a canary, can we tell it is an attacker?
-2. **Diversion:** once we know, can we burn its time and tokens on a path that never reaches the
-   real target?
-3. **Prevention:** after we apply a fix, does it actually hold when the *same* attacker comes
-   back?
+The [Maple Loop Experiment](https://github.com/Temp-Security-Startup/maple-loop-experiment) took a
+real breach, rebuilt the attack chain in a small Docker lab, and let two LLM agents fight over it
+in a loop. One attacks, one defends, then the same attacker comes back to see whether the fix
+held. Their write-up is worth reading before this one, because the idea we care about is theirs.
 
-Everything here is a purpose-built stand-in. No real software is exploited and no real users or
-data exist. The incidents are real; the vulnerabilities are toys that share the real shape.
+The re-attack is the part I keep coming back to. Security work usually stops when the scanner
+reports something or the pentester gets a shell, and neither of those tells you whether the fix
+closes the path the attacker actually took. The only way to know is to keep the attacker and send
+it back in after the fix.
 
----
+So we took their loop and made the test harder. We added a containment arm from our own tooling,
+closed a few holes we found in the lab, and built a second estate from a different incident. Then
+we made the defender side an experiment too. We want to know which tools in our blue arsenal
+actually stop the chain and which ones just look like they do.
 
-## What we are trying to do
+None of this touches real software. The incidents are real, the bugs are toys we wrote, and there
+are no real users or data anywhere in the repo.
 
-Security controls are usually evaluated at a point in time: a scanner says "you have an RCE," a
-pentest says "we got in." Neither tells you whether the *fix* closes the path an actual attacker
-used, or whether the attacker simply walks around it. Answering that requires owning the attacker
-and sending it back in after the fix. This lab exists to make that loop real and measurable.
+## What the Maple Loop Experiment set out to prove
 
-The beliefs under test:
+Their starting point was the Hacktron write-up on the OpenAI forum breach: a crafted image hit a
+memory bug in an image decoder, that gave code execution on a low-trust forum, the forum shared an
+identity plane with the high-trust app, and an employee's connected coding agent had write access
+to an internal repo. They rebuilt that chain in miniature so the agents had something real to act
+on.
 
-- **Deception is detection and containment, not a wall.** A decoy that a capable attacker can
-  read, spoof, or route around is friction. Its durable value is the signal and the containment.
-- **The decoy must be bound to the route, not to a behavior.** A decision like "is this client a
-  bot?" is spoofable and has no precision in an estate full of legitimate automation. A route
-  that no legitimate principal ever uses is an attacker signal for free.
-- **Detection and diversion must be coupled.** A passive decoy is ignored by an attacker that can
-  still see the real target. Once the canary fires, the real target has to go away, and the decoy
-  becomes the only thing that still answers.
-- **Containment that removes capability is what makes a fix hold.** Patching, seccomp, identity
-  segmentation, and process containment (a rak-agent policy) do not depend on fooling anyone.
-- **A guided attacker measures the prompt, not the attacker.** If the red agent is handed the
-  exploit bytes and the API map, a high compromise rate says little about autonomous discovery.
-- **Containment is an invariant, not a percentage.** No attacker route may reach REAL data or mint
-  a REAL credential, and a benign control must stay benign. We test that, not the attacker's story.
+The claim is that the loop is the artifact worth having, more than any single defense. Seccomp, a
+virtual patch, and identity segmentation are all off-the-shelf. What they say does not exist as a
+product is the closed loop: an attacker that finds a multi-stage path, a defender that picks a
+mitigation from an arsenal, and a re-attack that measures whether the mitigation held.
 
----
+They ran 40 loops and reported that the attack landed about 60% of the time without deception,
+that every fix held on re-attack, and that deception diverted the attacker every time. They were
+also flagged the last number themselves, which mattered to us. It held against a blind, curl-driven
+agent, and their own earlier runs showed a capable agent spoofing the fingerprint and walking
+around the decoy. Their conclusion was that against an adaptive adversary, deception slows the
+attacker down and does not stop one.
 
-## The estates
+That matches what we have seen, and it is where our work picks up.
 
-### 1. Parser estate: image RCE to connected-agent supply chain
+## What we changed
 
-Shape of the [OpenAI forum breach](docs/incidents/INCIDENT-CATALOG.md#openai-hacktron) (July
-2026): a crafted image hits a memory-unsafe decoder for RCE as the service user, the service can
-read an employee session secret, the session redeems cross-tier for that employee's app identity,
-and the employee's connected AI agent holds CI write that reaches a protected release path.
+A loop is only as good as its measurement, so most of our work went into the parts that produce
+the number.
 
-Files: [`experiments/maple-rerun/`](experiments/maple-rerun/). Full report:
-[`docs/incidents/MAPLE-RERUN-2026-09-21.md`](docs/incidents/MAPLE-RERUN-2026-09-21.md).
+Their red agent was handed the exploit bytes and the API map in its system prompt. That makes for
+a reliable demo and a misleading capability number. We added an unguided prompt and ran both. In
+our rerun the guided agent compromised 2 of 2, and the unguided one got code execution and then
+failed to find the rest of the chain. If you want to claim a discovery result, you have to withhold
+the map.
 
-**Deterministic matrix: 20/20, no Docker, no model calls.**
-The real hijack lands and produces D2 identity, D5 connected-agent, and D4 supply-chain alerts plus
-a recorded core-package publish. vpatch rejects the overflow (rc=2). seccomp kills the hijack
-(SIGSYS). A naive client is diverted to the maplepot and the divert is wired to Blue as
-D6/edge-divert. Under the rak arm the hijack **still lands** (the bug is untouched) but the
-decoder gets `Permission denied` on the secret and its egress is denied, so there is no account
-takeover and no publish.
+Their attacker container was never reset between loops, so later runs inherited exploit scripts
+from earlier ones. We wipe the foothold before every run.
 
-**Live loop** (`deepseek/deepseek-v4.1-flash` via OpenRouter, small n, deception off):
+Their edge decided a client was an automated attacker and diverted it, but that decision never
+reached the defender agent. The loop could not use its own best signal. We wired it in.
 
-| Arm | n | attack compromised | re-attack held | cost |
-|---|--:|--:|--:|--:|
-| unguided red prompt (recon only) | 2 | 0 / 2 | n/a | $0.039 |
-| guided red prompt (published) | 2 | 2 / 2 | **2 / 2 under rak** | $0.037 |
+Two bugs in their containment defeated the deception outright. The real app accepted any credential
+beginning with the canary prefix, and the decoy shared a network and a real secret with the real
+app. Either one lets an attacker who reaches the decoy mint a real change. We fixed both, and we
+treat the second one as the real lesson: no decoy survives a shared credential.
 
-The unguided agent got RCE and then failed to find the SSO redeem, the connected-agent list, or
-the publish path. Handed the prompt, it compromised both times. Capability removal held both times.
+We added a second estate from a different incident, and we put our own containment tool in the
+arsenal.
 
-### 2. Registry-worm estate: install-time credential harvest and republish
+## Testing the blue arsenal
 
-Shape of the [ChainDrop npm worm](docs/incidents/INCIDENT-CATALOG.md#chaindrop-npm-worm) (August
-2026): a malicious package version runs from a `preinstall` hook, harvests the runner's package and
-cloud credentials, and republishes packages with the stolen token.
+This is the question we care about most. Which of our tools removes the attacker's ability, and
+which one only removes one link while leaving the rest?
 
-Files: [`experiments/chaindrop-estate/`](experiments/chaindrop-estate/).
+The parser estate ships six defenses and the loop applies them as arms. Here is what we measured,
+scored from the estate's recorded state. What an agent claims does not move the number:
 
-**13/13.** Baseline: the hook harvests the real token, writes loot, and lands a real poisoned
-release. rak: the hook still runs but is denied the credential file and the exfil directory, so it
-has no token and nothing lands. Deception: the runner holds a canary token, the worm "succeeds,"
-but the real registry routes a canary publish to the maplepot, the real packages are untouched, and
-the canary use is a tripwire.
+- A virtual patch fixes the decoder at the sink. The overflow is rejected, nothing else is needed.
+- Seccomp lets the hijack land and kills the process at `execve`. One link, and a reliable one.
+- Identity segmentation blocks the cross-tier redemption, so the stolen session cannot become an
+  app identity. The RCE still happens.
+- Gating the connected agent closes the pivot where a hijacked session drives an AI agent that
+  holds CI write. The account takeover still happens.
+- Deception detects and diverts. It does not stop a capable attacker, and the published run's
+  perfect diversion number is a statement about a blind agent, not about the technique.
+- Our rak containment is the one we were most curious about. It leaves the memory bug in place and
+  denies the decoder the things it needs next: the session secret and the network. The hijack lands
+  and is inert.
 
----
+On re-attack, capability removal is what holds. In our live arm the guided attacker compromised
+both runs without a defense, and both re-attacks failed once rak was on. The attacker did not give
+up, it re-ran the exploit and kept trying to read the secret and reach the app, and it was denied
+each time. That is the difference between a fix and a speed bump.
+
+## The two estates
+
+### Parser estate
+
+The shape of the [OpenAI forum breach](docs/incidents/INCIDENT-CATALOG.md#openai-hacktron): image
+RCE, a readable session secret, a cross-tier identity pivot, and a connected agent that can reach a
+protected release path.
+
+`experiments/maple-rerun/`. Report: `docs/incidents/MAPLE-RERUN-2026-09-21.md`.
+
+All 20 deterministic checks pass without Docker and without spending a token. In the live arm the
+unguided attacker compromised nothing in two runs, the guided attacker compromised both, and rak
+held both on re-attack. The model was `deepseek/deepseek-v4.1-flash` through OpenRouter.
+
+### Registry-worm estate
+
+The shape of the [ChainDrop npm worm](docs/incidents/INCIDENT-CATALOG.md#chaindrop-npm-worm): a
+package install hook harvests the runner's credentials and republishes packages with the stolen
+token.
+
+`experiments/chaindrop-estate/`.
+
+13 of 13. Without a defense the hook reads the real token, writes its loot, and lands a poisoned
+release. Under rak the hook still runs and is denied the credential file and the exfiltration
+directory, so it has no token. With deception the runner holds a canary token instead, the worm
+thinks it won, and the publish lands in the decoy while the canary use trips a tripwire.
+
+## What we found
+
+1. Deception buys detection and containment, not a wall. A decoy a capable attacker can read or
+   spoof is friction, and its real value is the early signal plus the fact that the attacker is
+   somewhere else.
+2. A decoy only holds if it answers the whole objective. One fake flag when the task needs two gets
+   pocketed, and the attacker speeds up.
+3. Detection has to trigger a response. A passive decoy gets ignored while the real target is
+   visible, and the test that matters is whether any attacker route can reach real data or mint a
+   real credential. Not whether the attacker looked convinced.
+4. Guided attackers measure the prompt. The published compromise rate reproduced in our rerun only
+   when the exploit and the API map were supplied.
+5. Capability removal is what makes a fix hold. Rak contained an RCE that still landed, and the
+   attacker that won twice without a defense lost twice with it.
+6. Authorization and boundary bugs beat deception. A shared credential or a shared network will
+   sink a good decoy every time.
+7. Canary precision is meaningless without a named legitimate population. A canary a real user can
+   reach produces false positives, and a canary nobody can reach produces nothing. It has to be
+   reachable on the sanctioned path and actionable only off it.
+8. Evidence has to be committed. The published headline lives in generated docs while the raw loop
+   files sit in `.gitignore`, so you cannot re-derive it. Every number here ships with the harness
+   and the JSON behind it.
 
 ## How we test
 
-- **Reproduce the shape, not the weapon.** Toy decoder, stand-in worm, mock SSO and registry. The
-  mechanics we claim are real (a real buffer overflow and control-flow hijack, real seccomp, real
-  Landlock enforcement) are labelled as such; everything else says it is a model.
-- **Arm ladder.** Every estate runs the same defenses as selectable arms: no defense, virtual
-  patch, seccomp, identity segmentation, connected-agent gating, a rak-agent containment policy,
-  and deception.
-- **Ground truth only.** "Compromised" and "held" are read from the estate's recorded state (a
-  package was published, a protected merge exists). The agent can narrate anything; it does not
-  move the scoreboard.
-- **A benign control.** A legitimate request must produce zero alerts and zero compromise, so the
-  measurement is not rigged to always fire.
-- **A fresh attacker per run.** The foothold is reset between runs, because a long-lived attacker
-  that keeps its earlier exploit scripts is not an independent trial.
-- **No Docker required for the deterministic path.** The published experiment needs Docker; these
-  harnesses run as localhost processes and enforce isolation with Landlock, which is exactly the
-  exec-allowlist / file-deny / egress-deny shape a rak policy compiles. The limits of that
-  substitution are stated in each report.
+Each estate rebuilds the shape of an incident and runs the same arms:
 
----
+- no defense
+- a patch
+- seccomp
+- identity segmentation
+- agent gating
+- a rak policy
+- deception
 
-## Conclusions so far
+Two rules keep the scoreboard straight. A compromise or a held fix is read from the estate's
+recorded state, never from the agent's own claim. And a benign request has to come back quiet and
+leave that state empty, so the alarms are not rigged to fire.
 
-1. **Deception's robust value is detection plus containment, not a wall.** In the parser estate a
-   blind, curl-driven attacker was diverted 100% of the time, but that is a statement about that
-   attacker. A capable agent that suspects the fingerprint can spoof the handshake, and in the
-   published build an attacker who reached the decoy could read the real secret and mint a real
-   credential against the real app.
-2. **A decoy only holds if it satisfies the whole objective.** A partial decoy (one fake flag when
-   the task needs two) gets banked and can speed up the real attack.
-3. **Couple detection to a response, and make containment an invariant.** A passive decoy is
-   ignored while the real target is visible. The test is "can any attacker route reach REAL or mint
-   a REAL credential?", not "did the attacker look fooled?"
-4. **Guided attackers overstate capability.** In our rerun the published 0.60 compromise shape
-   reproduced only when the exploit bytes and the API map were supplied. Unguided, the same model
-   got code execution and never completed the chain. Any autonomy claim should be measured with the
-   map withheld.
-5. **Capability removal is what makes a fix hold.** Under rak, the parser RCE landed and was inert
-   (secret read and egress kernel-denied), and the guided attacker that compromised 2/2 without a
-   defense failed 2/2 on re-attack. seccomp and vpatch behave the same way.
-6. **Authorization and boundary bugs beat deception.** Two concrete examples in the published
-   build: the real app accepted canary credentials, and the decoy shared a network and a real
-   secret with the real app. Both are fixed here by scoping the canary to the decoy and by giving
-   each role its own files and port. No amount of decoy quality survives a shared credential.
-7. **Canary precision is undefined without a named legitimate population.** A canary that
-   legitimate users can reach gives false positives; a canary nobody can reach gives no signal. It
-   has to be actionable only off the sanctioned path, and it has to be gated behind an action that
-   only an attacker takes.
-8. **Evidence has to be committed.** The published 40-loop result lives in generated docs while the
-   raw loop files are gitignored, so the headline cannot be re-derived. Every number here ships
-   with the harness and the raw JSON that produced it.
-
----
-
-## What we do not claim
-
-- Small n and one attacker model per live arm. These are capability signals, not rates.
-- The host harness uses Landlock for isolation, not Docker network namespaces. The deterministic
-  arms are the strong evidence; the live arms are directional.
-- The vulnerabilities are toy instances at tutorial difficulty. We reproduce the chain, not the
-  weapon.
-- The incidents are recent and moving. The catalog records the shape we built from and links the
-  primary sources.
-
----
+The published experiment needs Docker. Ours runs as localhost processes and uses Landlock for
+isolation, which happens to enforce the same allowlist and deny shape a rak policy compiles. That
+lets both estates run anywhere with a Linux kernel and a C compiler. The trade-offs are in each
+report.
 
 ## Repository layout
 
 ```
-README.md                              this file
-docs/incidents/incidents.json          incident catalog, source of truth (19 incidents)
-docs/incidents/INCIDENT-CATALOG.md     generated view
-docs/incidents/MAPLE-RERUN-2026-09-21.md   parser-estate rerun report
-tools_gen_incidents.py                 regenerates the catalog view
-experiments/maple-rerun/               parser estate: harness, patch, raw results
-experiments/chaindrop-estate/          registry-worm estate: harness, registry, stand-in worm
+README.md
+docs/incidents/incidents.json                 the incident catalog, 19 entries
+docs/incidents/INCIDENT-CATALOG.md            generated from the JSON
+docs/incidents/MAPLE-RERUN-2026-09-21.md      parser-estate report
+tools_gen_incidents.py
+experiments/maple-rerun/                      parser estate
+experiments/chaindrop-estate/                 registry-worm estate
 ```
 
-## Run
+## Run it
 
-Deterministic arms, no Docker, no API keys:
+Deterministic arms, runnable with Python and a C compiler:
 
 ```sh
-# parser estate (shape of the OpenAI forum breach)
-cd experiments/maple-rerun && python3 run_local.py
-
-# registry-worm estate (shape of ChainDrop)
-cd experiments/chaindrop-estate && python3 run_local.py
+cd experiments/maple-rerun && python3 run_local.py       # 20 of 20
+cd experiments/chaindrop-estate && python3 run_local.py  # 13 of 13
 ```
 
-Live parser-estate loop (uses OpenRouter, roughly $0.02 per loop):
+Live parser-estate loop, which spends a little money on OpenRouter:
 
 ```sh
 cd experiments/maple-rerun
@@ -185,7 +192,7 @@ python3 run_loop_local.py 2                          # unguided attacker
 python3 run_loop_local.py 2 --guided --force-rak     # guided attacker, rak re-attack
 ```
 
-Regenerate the incident catalog after editing `incidents.json`:
+Rebuild the catalog after editing the JSON:
 
 ```sh
 python3 tools_gen_incidents.py
@@ -193,16 +200,28 @@ python3 tools_gen_incidents.py
 
 ## The incident catalog
 
-[`docs/incidents/INCIDENT-CATALOG.md`](docs/incidents/INCIDENT-CATALOG.md) holds 19 recent
-incidents across seven patterns: parser-RCE chains, registry worms, agent prompt injection, OAuth
-identity chains, autonomous-agent intrusions, AI-introduced vulnerabilities, and an initial-access
-primitive backlog. Each entry names the chain, the AI-agent role, the deception and canary surface,
-a rak containment fit, and how it maps onto the estate stages, so it can be turned into the next
-estate.
+The catalog collects 19 recent incidents that share the shapes we test: parser-RCE chains, registry
+worms, agent prompt injection, OAuth identity chains, autonomous-agent intrusions, AI-introduced
+vulnerabilities, and a backlog of initial-access primitives. Each entry has the chain, the role an
+AI agent played, the deception and canary surface, a rak containment fit, and the estate stages it
+maps to.
 
-Next up, in priority order: `chaindrop-npm-worm` (done here), `klue-oauth-icarus`,
-`deadbugz-mcp`, `clinejection`, and `nextjs-libheif-avif`.
+We picked ChainDrop for the second estate because a self-propagating credential harvester is the
+hardest thing to fake your way out of. Klue and the OAuth chain are next, then the agent-pivot cases
+(Deadbugz, Clinejection) and the newer libheif RCE in Next.js.
 
-## License
+## What we do not claim
 
-MIT. See [LICENSE](LICENSE).
+With small n and one attacker model per live arm, the live numbers are a rough capability signal.
+The host harness uses Landlock where the published lab uses Docker network namespaces, and the
+deterministic arms carry more weight than the live ones. The vulnerabilities are toy instances at
+tutorial difficulty, so the exploit itself stays a toy. And the incidents are recent, so the
+catalog is a snapshot with links to the sources.
+
+## Credit
+
+The loop and the question start with the
+[Maple Loop Experiment](https://github.com/Temp-Security-Startup/maple-loop-experiment). We disagree
+with a couple of their conclusions and we changed their harness, but the framing is theirs.
+
+MIT, see [LICENSE](LICENSE).

@@ -28,15 +28,17 @@ claims.
 | **rak** | real publish token | rak policy: exec allowlist, file deny on the credential dir, egress allowlist to the registry only | harvest and exfil kernel-denied; no token, no republish |
 | **deception** | canary token | none | worm republishes, but the real registry routes a canary publish to the maplepot; real packages untouched; tripwire fires |
 
-## Result: 13/13 (deterministic, no Docker, no model calls)
+## Result: 13/13
+
+Deterministic. It runs on the host with Python and a C compiler, and makes no model calls.
 
 ```
 == RESULT: 13 passed, 0 failed ==
   ChainDrop-style estate verified: baseline lands, rak contains, deception diverts.
 ```
 
-The rak arm is the interesting one. The install hook still runs (we do not patch anything), but it
-is denied the credential file and the exfil directory, so it exits with no token:
+The rak arm is the interesting one. The install hook still runs; we patch nothing. It is denied
+the credential file and the exfil directory, so it exits with no token:
 
 ```json
 {"pkg": "@acme/leftpad", "read": [], "exfil": "ERR:PermissionError", "publish": "no", "token": null}
@@ -57,8 +59,8 @@ tripwire:
 python3 run_local.py
 ```
 
-Needs `cc` and Linux (Landlock for the rak arm). No Docker, no API key. Artifacts and logs land
-in `/tmp/chaindrop-rerun/`.
+Needs `cc` and Linux (Landlock for the rak arm). No Docker or API key is required. Artifacts and
+logs land in `/tmp/chaindrop-rerun/`.
 
 ## What this estate does not model
 

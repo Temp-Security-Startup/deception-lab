@@ -36,11 +36,11 @@ libseccomp headers. Logs land in `/tmp/maple-rerun/`.
 
 ## Fixes carried in the patch
 
-- Canary credentials are accepted only by the decoy (`estate_app.valid_token`), so a
-  decoy-reached attacker can no longer mint a real supply-chain change.
-- The edge divert decision is posted to the real app as `D6/edge-divert`, so Blue can use it.
-- The attacker foothold is wiped between loops.
-- App and decoy run under a container-like Landlock cage: own source, own secret, own port.
+- Canary credentials are accepted only by the decoy (`estate_app.valid_token`), so an attacker who
+  reaches the decoy can no longer mint a real supply-chain change.
+- Edge divert decisions now reach Blue as `D6/edge-divert`.
+- The foothold gets wiped before every loop, and each role runs under a container-like Landlock
+  cage confined to its own files and port.
 
 ## Limits
 

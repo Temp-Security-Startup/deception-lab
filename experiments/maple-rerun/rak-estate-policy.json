@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "exec": {
+    "mode": "allowlist",
+    "bootstrap": "/usr/bin/python3",
+    "allow": [
+      "/usr/local/bin/vuln_decoder"
+    ]
+  },
+  "files": [
+    {
+      "path": "/tmp/maple-rerun/secrets",
+      "deny": "read_write",
+      "tree": true
+    }
+  ],
+  "network": {
+    "mode": "off"
+  }
+}

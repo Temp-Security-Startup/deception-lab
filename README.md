@@ -1,65 +1,70 @@
 # Deception & Containment Lab
 
-We built this on top of someone else's experiment.
+## Stylistic note
 
-The [Maple Loop Experiment](https://github.com/Temp-Security-Startup/maple-loop-experiment) took a
+When I use 'I' it really means I (Omerr). When I use 'we' it might mean "the agent and I" or the three of us.
+
+## Background
+
+Karas's [Maple Loop Experiment](https://github.com/Temp-Security-Startup/maple-loop-experiment) took a
 real breach, rebuilt the attack chain in a small Docker lab, and let two LLM agents fight over it
 in a loop. One attacks, one defends, then the same attacker comes back to see whether the fix
-held. Their write-up is worth reading before this one, because the idea we care about is theirs.
+held.
 
-The re-attack is the part I keep coming back to. Security work usually stops when the scanner
-reports something or the pentester gets a shell, and neither of those tells you whether the fix
-closes the path the attacker actually took. The only way to know is to keep the attacker and send
-it back in after the fix.
+I assume you are familiar with it :)
 
-So we took their loop and made the test harder. We added a containment arm from our own tooling,
-closed a few holes we found in the lab, and built a second estate from a different incident. Then
-we made the defender side an experiment too. We want to know which tools in our blue arsenal
-actually stop the chain and which ones just look like they do.
+I took Karas's loop and made the test harder. I added a containment arm from our own tooling,
+closed a few holes found in the lab, and built a second estate from a different incident. Then
+we (well, AI and I) made the defender side an experiment too.
 
-None of this touches real software. The incidents are real, the bugs are toys we wrote, and there
+The incidents are real, the bugs are toys we wrote, and there
 are no real users or data anywhere in the repo.
+
+## The incident catalog
+
+We all (Karas, Yoav, Omerr) agreed that real incidents are an important base for discussion.
+I first created a catalog(ue?) of such incidents that we can use.
+
+[Incident catalog](docs/incidents/INCIDENT-CATALOG.md)
 
 ## What the Maple Loop Experiment set out to prove
 
-Their starting point was the Hacktron write-up on the OpenAI forum breach: a crafted image hit a
+(That's a reminder, feel free to skip)
+
+The starting point was the Hacktron write-up on the OpenAI forum breach: a crafted image hit a
 memory bug in an image decoder, that gave code execution on a low-trust forum, the forum shared an
 identity plane with the high-trust app, and an employee's connected coding agent had write access
-to an internal repo. They rebuilt that chain in miniature so the agents had something real to act
+to an internal repo. The repo rebuilt that chain in miniature so the agents had something real to act
 on.
 
-The claim is that the loop is the artifact worth having, more than any single defense. Seccomp, a
-virtual patch, and identity segmentation are all off-the-shelf. What they say does not exist as a
-product is the closed loop: an attacker that finds a multi-stage path, a defender that picks a
+The claim is that the loop is the important artifact: an attacker that finds a multi-stage path, a defender that picks a
 mitigation from an arsenal, and a re-attack that measures whether the mitigation held.
 
-They ran 40 loops and reported that the attack landed about 60% of the time without deception,
-that every fix held on re-attack, and that deception diverted the attacker every time. They were
-also flagged the last number themselves, which mattered to us. It held against a blind, curl-driven
+[Maple Loop Experiment](https://github.com/Temp-Security-Startup/maple-loop-experiment) ran 40 loops
+and reported that the attack landed about 60% of the time without deception,
+that every fix held on re-attack, and that deception diverted the attacker every time. It held against a blind, curl-driven
 agent, and their own earlier runs showed a capable agent spoofing the fingerprint and walking
-around the decoy. Their conclusion was that against an adaptive adversary, deception slows the
+around the decoy.
+
+Karas concluded that against an adaptive adversary, deception slows the
 attacker down and does not stop one.
 
-That matches what we have seen, and it is where our work picks up.
+Let's take it a step forward...
 
 ## What we changed
 
-A loop is only as good as its measurement, so most of our work went into the parts that produce
-the number.
-
-Their red agent was handed the exploit bytes and the API map in its system prompt. That makes for
+(1) Their red agent was handed the exploit bytes and the API map in its system prompt. That makes for
 a reliable demo and a misleading capability number. We added an unguided prompt and ran both. In
 our rerun the guided agent compromised 2 of 2, and the unguided one got code execution and then
-failed to find the rest of the chain. If you want to claim a discovery result, you have to withhold
-the map.
+failed to find the rest of the chain.
 
-Their attacker container was never reset between loops, so later runs inherited exploit scripts
+(2) Their attacker container was never reset between loops, so later runs inherited exploit scripts
 from earlier ones. We wipe the foothold before every run.
 
-Their edge decided a client was an automated attacker and diverted it, but that decision never
-reached the defender agent. The loop could not use its own best signal. We wired it in.
+(3) Their edge decided a client was an automated attacker and diverted it, but that decision never
+reached the defender agent. We wired it in.
 
-Two bugs in their containment defeated the deception outright. The real app accepted any credential
+(4) Two bugs in their containment defeated the deception outright. The real app accepted any credential
 beginning with the canary prefix, and the decoy shared a network and a real secret with the real
 app. Either one lets an attacker who reaches the decoy mint a real change. We fixed both, and we
 treat the second one as the real lesson: no decoy survives a shared credential.
@@ -67,9 +72,11 @@ treat the second one as the real lesson: no decoy survives a shared credential.
 We added a second estate from a different incident, and we put our own containment tool in the
 arsenal.
 
+Next we can run on the other incidents from the catalog, but I want some feedback first :)
+
 ## Testing the blue arsenal
 
-This is the question we care about most. Which of our tools removes the attacker's ability, and
+Question: Which of our tools removes the attacker's ability, and
 which one only removes one link while leaving the rest?
 
 The parser estate ships six defenses and the loop applies them as arms. Here is what we measured,
@@ -119,7 +126,7 @@ release. Under rak the hook still runs and is denied the credential file and the
 directory, so it has no token. With deception the runner holds a canary token instead, the worm
 thinks it won, and the publish lands in the decoy while the canary use trips a tripwire.
 
-## What we found
+## What we found (this part is 100% generated by DeepSeek)
 
 1. Deception buys detection and containment, not a wall. A decoy a capable attacker can read or
    spoof is friction, and its real value is the early signal plus the fact that the attacker is

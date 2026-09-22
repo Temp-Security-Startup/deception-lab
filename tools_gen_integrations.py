@@ -75,6 +75,61 @@ def render(it):
     return "\n".join(L)
 
 
+def render_day1(ds):
+    L = ["## Day-1 stack: the exact products", "", ds["summary"], ""]
+    L.append("| layer | product | runner-up | why this one | demo path |")
+    L.append("|---|---|---|---|---|")
+    for p in ds["products"]:
+        L.append(f"| {p['layer']} | **{p['product']}** | {p.get('alternative','')} | {p['why']} | {p.get('demo_path','')} |")
+    L.append("")
+    if ds.get("enforcement_layer"):
+        L.append("**Below the five, doing the enforcement.**")
+        L.append("")
+        for e in ds["enforcement_layer"]:
+            L.append(f"- **{e['product']}.** {e['role']}")
+        L.append("")
+    if ds.get("dependency_note"):
+        L.append(f"**One dependency to flag.** {ds['dependency_note']}")
+        L.append("")
+    sd = ds.get("strongest_demo", {})
+    if sd:
+        L.append(f"### Strongest demo: {sd['name']}")
+        L.append("")
+        L.append(f"Maps to {', '.join(sd.get('maps_to', []))}.")
+        L.append("")
+        L.append(sd["why_strongest"])
+        L.append("")
+        for i, s in enumerate(sd.get("steps", []), 1):
+            L.append(f"{i}. {s}")
+        L.append("")
+        L.append(f"**The frame that sells it.** {sd.get('money_shot','')}")
+        L.append("")
+    rd = ds.get("runner_up_demo", {})
+    if rd:
+        L.append(f"### Runner-up: {rd['name']}")
+        L.append("")
+        L.append(f"Products are {', '.join(rd.get('products', []))}. It maps to {', '.join(rd.get('maps_to', []))}.")
+        L.append("")
+        L.append(rd.get("why", ""))
+        L.append("")
+        for i, s in enumerate(rd.get("steps", []), 1):
+            L.append(f"{i}. {s}")
+        L.append("")
+    if ds.get("choice_notes"):
+        L.append("### Why these and not the obvious alternatives")
+        L.append("")
+        for c in ds["choice_notes"]:
+            L.append(f"**{c['chose']} over {c['over']}.** {c['because']}")
+            L.append("")
+    if ds.get("deferred"):
+        L.append("### Deferred")
+        L.append("")
+        for x in ds["deferred"]:
+            L.append(f"- **{x['product']}.** {x['reason']}")
+        L.append("")
+    return "\n".join(L)
+
+
 def main():
     doc = json.load(open(SRC, encoding="utf-8"))
     items = doc["integrations"]
@@ -102,6 +157,9 @@ def main():
     L.append("")
     L.append(f"**Smallest day-one demo.** {pr['day1_demo']}")
     L.append("")
+
+    if doc.get("day1_stack"):
+        L.append(render_day1(doc["day1_stack"]))
 
     L.append("## At a glance")
     L.append("")

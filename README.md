@@ -101,14 +101,13 @@ each time. That is the difference between a fix and a speed bump.
 
 ## Wiring it into a real estate
 
-Everything above runs against estates we built. To point the same loop at a real company we need
+Everything above runs against estates we built. Pointing the same loop at a real company needs
 connectors, and the day-one list is shorter than it looks. The
-[integration catalog](docs/integrations/INTEGRATION-CATALOG.md) has sixteen of them, each with the
-exact data we want, the blue action it unlocks, and how we would demo it against one of these
-estates. Six of them cover the whole loop. The identity provider and source control are where an
-attacker gets in and escalates. The registry is the supply-chain target. The proxy is where the
-decoy goes. Runtime telemetry with a kernel policy is how we take the capability away, and the
-secrets manager is where we plant the canary.
+[integration catalog](docs/integrations/INTEGRATION-CATALOG.md) has sixteen of them, and it names
+the five that carry the first demo. Okta covers identity. GitHub covers code and CI. JFrog
+Artifactory covers artifacts, HashiCorp Vault covers secrets, and Envoy is the deception control
+point. rak and Tetragon sit underneath for enforcement. The catalog also has the script for the
+demo I would show first, the release that never shipped.
 
 ## The two estates
 

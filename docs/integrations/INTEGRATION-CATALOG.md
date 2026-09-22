@@ -20,6 +20,70 @@ We rank a connection by how much of the attack chain it lets us cover, and by wh
 
 **Smallest day-one demo.** The smallest credible demo uses one attacker route through a proxy, one stolen identity at the IdP, one poisoned artifact at a registry, one canary secret in a vault, and one kernel denial at runtime. That combination lets us show the whole loop, detection to diversion to capability removal to a held re-attack, against the OpenAI and ChainDrop shapes we already run.
 
+## Day-1 stack: the exact products
+
+Five vendor integrations carry the day-one demo, with two pieces below them doing the enforcement. Together they cover the attacker's entry, its escalation, the artifact it poisons, the credential it steals, and the point where we redirect it.
+
+| layer | product | runner-up | why this one | demo path |
+|---|---|---|---|---|
+| Identity | **Okta** | Microsoft Entra ID | The System Log API gives sign-in and OAuth token events with session and token ids, and the Grants API revokes the exact grant an attacker replayed. The free Developer Edition makes the demo reproducible. | Okta Developer tenant, an OAuth app with read scopes and one revoke scope. |
+| Code and CI | **GitHub** | GitLab | Webhooks, the Audit Log API, and Actions OIDC claims give actor, actor type, workflow, runner identity, and the trigger event, which is what the injection and agent-pivot detections need. Three of our incidents are GitHub-shaped. | A free org, webhooks, and a fine-grained token for the audit log. |
+| Artifact | **JFrog Artifactory** | npm as the public surface | Artifactory is enforceable. Publish webhooks, audit, permission targets, and an API to quarantine a version or revoke a token. You already have maple-real-artifactory, so this reuses your own lab. | Artifactory OSS or trial, with npm public for the ChainDrop surface. |
+| Secrets | **HashiCorp Vault** | AWS Secrets Manager | The cleanest canary primitive. Audit devices log every read with the accessor identity, and leases give us revoke and rotate. It is already in the Artifactory lab. | Vault dev server with a file audit device. |
+| Route | **Envoy** | Cloudflare | The deception control point. ext_authz gives the decision hook, ALS gives the request and route data, and two upstream clusters give the divert. Free, local, and it is the standard mesh data plane. | Envoy OSS with two clusters and ext_authz to our service. |
+
+**Below the five, doing the enforcement.**
+
+- **rak-agent.** File deny by inode, exec allowlist, and egress deny on the untrusted process. This is what makes a fix hold without patching the bug.
+- **Tetragon.** Runtime telemetry from eBPF plus in-kernel enforcement, so the signal and the containment come from the same layer. CrowdStrike Falcon is the buyer-facing swap when the customer already runs it.
+
+**One dependency to flag.** The route integration assumes the customer's proxy can call us for a decision. If it cannot be changed, the fallback is DNS-based routing, where a canary hostname resolves to the decoy. That is why Cloudflare and Route 53 stay warm.
+
+### Strongest demo: The release that never shipped
+
+Maps to chaindrop-npm-worm, tanstack-teampcp.
+
+The outcome is binary, so nobody has to interpret a score. Either a poisoned package ships or it does not, and every product in the path is one the buyer already runs.
+
+1. A scripted attacker runs on a build runner and reads a Vault credential. The Vault audit fires, and the credential is a canary, so the read is a tripwire with no false positives.
+2. Envoy calls our service through ext_authz when the attacker tries to publish. It sees a canary credential on a route no legitimate CI uses, and routes the publish to the decoy Artifactory cluster.
+3. A reach for the real secret and the real registry gets denied. rak blocks the file read by inode and blocks egress, and Tetragon records the denial.
+4. Okta flags the anomalous grant or the cross-tier redemption that got the attacker this far.
+5. Ground truth settles it. Artifactory's real repo has no new package, the decoy repo has it, Vault's real secret is untouched, and GitHub shows no protected merge.
+6. A re-attack with the same scripted worm fails, and a benign CI publish still succeeds.
+
+**The frame that sells it.** Real registry clean, decoy registry poisoned, Vault canary read, kernel denial. Detection, diversion, capability removal, and a held re-attack on one screen, against products the buyer knows.
+
+### Runner-up: The hijacked agent that could not ship
+
+Products are Okta, GitHub, an agent surface such as MCP, LiteLLM, or the customer's Copilot. It maps to openai-hacktron, deadbugz-mcp, clinejection.
+
+It is the differentiated story, because a borrowed agent identity is new to most audiences. It is also harder to land in thirty seconds than a poisoned release.
+
+1. A poisoned issue or tool description points a connected agent at a protected publish.
+2. GitHub identifies the actor as an agent and flags the non-interactive trigger.
+3. We gate the action and revoke the connector, so the publish is refused.
+4. The repo stays clean, and rak contains the agent process.
+
+### Why these and not the obvious alternatives
+
+**Okta over Entra.** A faster free tenant and a cleaner log-and-grants API. Choose Entra when the buyer is Microsoft-centric.
+
+**Artifactory over raw npm.** Raw npm cannot quarantine or revoke the way a private registry can, so the containment half of the demo is weaker. npm stays as the recognizable public surface.
+
+**Vault over cloud secret managers.** A dev server, exact read events, and leases. Cloud secret managers are a P2 extension.
+
+**Envoy over Cloudflare.** Local, free, and it has the decision hook. Choose Cloudflare when the customer is SaaS-first and we want DNS-based route-bound deception.
+
+**Tetragon over CrowdStrike for the demo.** Free and local. Swap in CrowdStrike for the pitch and for real deployments.
+
+### Deferred
+
+- **Splunk and Sentinel.** Alert plumbing. It adds nothing to the demo, so we add it after the loop is solid.
+- **ServiceNow and asset inventory.** Useful for blast radius and decoy placement, not for the first screen.
+- **CyberArk and PAM.** Later hops in the chain.
+- **Cloud audit logs.** Add AWS CloudTrail as the first extension once the five are in.
+
 ## At a glance
 
 | id | tier | category | detect | act | ground truth | effort |

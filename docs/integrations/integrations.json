@@ -1242,5 +1242,161 @@
       ],
       "fallback": "The manual catalog in this repo."
     }
-  ]
+  ],
+  "day1_stack": {
+    "summary": "Five vendor integrations carry the day-one demo, with two pieces below them doing the enforcement. Together they cover the attacker's entry, its escalation, the artifact it poisons, the credential it steals, and the point where we redirect it.",
+    "products": [
+      {
+        "layer": "Identity",
+        "product": "Okta",
+        "alternative": "Microsoft Entra ID",
+        "why": "The System Log API gives sign-in and OAuth token events with session and token ids, and the Grants API revokes the exact grant an attacker replayed. The free Developer Edition makes the demo reproducible.",
+        "demo_path": "Okta Developer tenant, an OAuth app with read scopes and one revoke scope.",
+        "maps_to": [
+          "klue-oauth-icarus",
+          "salesloft-drift",
+          "openai-hacktron"
+        ]
+      },
+      {
+        "layer": "Code and CI",
+        "product": "GitHub",
+        "alternative": "GitLab",
+        "why": "Webhooks, the Audit Log API, and Actions OIDC claims give actor, actor type, workflow, runner identity, and the trigger event, which is what the injection and agent-pivot detections need. Three of our incidents are GitHub-shaped.",
+        "demo_path": "A free org, webhooks, and a fine-grained token for the audit log.",
+        "maps_to": [
+          "openai-hacktron",
+          "clinejection",
+          "snowflake-copilot-autofix"
+        ]
+      },
+      {
+        "layer": "Artifact",
+        "product": "JFrog Artifactory",
+        "alternative": "npm as the public surface",
+        "why": "Artifactory is enforceable. Publish webhooks, audit, permission targets, and an API to quarantine a version or revoke a token. You already have maple-real-artifactory, so this reuses your own lab.",
+        "demo_path": "Artifactory OSS or trial, with npm public for the ChainDrop surface.",
+        "maps_to": [
+          "chaindrop-npm-worm",
+          "tanstack-teampcp",
+          "axios-npm"
+        ]
+      },
+      {
+        "layer": "Secrets",
+        "product": "HashiCorp Vault",
+        "alternative": "AWS Secrets Manager",
+        "why": "The cleanest canary primitive. Audit devices log every read with the accessor identity, and leases give us revoke and rotate. It is already in the Artifactory lab.",
+        "demo_path": "Vault dev server with a file audit device.",
+        "maps_to": [
+          "chaindrop-npm-worm",
+          "openai-hacktron"
+        ]
+      },
+      {
+        "layer": "Route",
+        "product": "Envoy",
+        "alternative": "Cloudflare",
+        "why": "The deception control point. ext_authz gives the decision hook, ALS gives the request and route data, and two upstream clusters give the divert. Free, local, and it is the standard mesh data plane.",
+        "demo_path": "Envoy OSS with two clusters and ext_authz to our service.",
+        "maps_to": [
+          "openai-hacktron",
+          "nextjs-libheif-avif"
+        ]
+      }
+    ],
+    "enforcement_layer": [
+      {
+        "product": "rak-agent",
+        "role": "File deny by inode, exec allowlist, and egress deny on the untrusted process. This is what makes a fix hold without patching the bug."
+      },
+      {
+        "product": "Tetragon",
+        "role": "Runtime telemetry from eBPF plus in-kernel enforcement, so the signal and the containment come from the same layer. CrowdStrike Falcon is the buyer-facing swap when the customer already runs it."
+      }
+    ],
+    "dependency_note": "The route integration assumes the customer's proxy can call us for a decision. If it cannot be changed, the fallback is DNS-based routing, where a canary hostname resolves to the decoy. That is why Cloudflare and Route 53 stay warm.",
+    "strongest_demo": {
+      "name": "The release that never shipped",
+      "maps_to": [
+        "chaindrop-npm-worm",
+        "tanstack-teampcp"
+      ],
+      "why_strongest": "The outcome is binary, so nobody has to interpret a score. Either a poisoned package ships or it does not, and every product in the path is one the buyer already runs.",
+      "steps": [
+        "A scripted attacker runs on a build runner and reads a Vault credential. The Vault audit fires, and the credential is a canary, so the read is a tripwire with no false positives.",
+        "Envoy calls our service through ext_authz when the attacker tries to publish. It sees a canary credential on a route no legitimate CI uses, and routes the publish to the decoy Artifactory cluster.",
+        "A reach for the real secret and the real registry gets denied. rak blocks the file read by inode and blocks egress, and Tetragon records the denial.",
+        "Okta flags the anomalous grant or the cross-tier redemption that got the attacker this far.",
+        "Ground truth settles it. Artifactory's real repo has no new package, the decoy repo has it, Vault's real secret is untouched, and GitHub shows no protected merge.",
+        "A re-attack with the same scripted worm fails, and a benign CI publish still succeeds."
+      ],
+      "money_shot": "Real registry clean, decoy registry poisoned, Vault canary read, kernel denial. Detection, diversion, capability removal, and a held re-attack on one screen, against products the buyer knows."
+    },
+    "runner_up_demo": {
+      "name": "The hijacked agent that could not ship",
+      "maps_to": [
+        "openai-hacktron",
+        "deadbugz-mcp",
+        "clinejection"
+      ],
+      "products": [
+        "Okta",
+        "GitHub",
+        "an agent surface such as MCP, LiteLLM, or the customer's Copilot"
+      ],
+      "why": "It is the differentiated story, because a borrowed agent identity is new to most audiences. It is also harder to land in thirty seconds than a poisoned release.",
+      "steps": [
+        "A poisoned issue or tool description points a connected agent at a protected publish.",
+        "GitHub identifies the actor as an agent and flags the non-interactive trigger.",
+        "We gate the action and revoke the connector, so the publish is refused.",
+        "The repo stays clean, and rak contains the agent process."
+      ]
+    },
+    "choice_notes": [
+      {
+        "chose": "Okta",
+        "over": "Entra",
+        "because": "A faster free tenant and a cleaner log-and-grants API. Choose Entra when the buyer is Microsoft-centric."
+      },
+      {
+        "chose": "Artifactory",
+        "over": "raw npm",
+        "because": "Raw npm cannot quarantine or revoke the way a private registry can, so the containment half of the demo is weaker. npm stays as the recognizable public surface."
+      },
+      {
+        "chose": "Vault",
+        "over": "cloud secret managers",
+        "because": "A dev server, exact read events, and leases. Cloud secret managers are a P2 extension."
+      },
+      {
+        "chose": "Envoy",
+        "over": "Cloudflare",
+        "because": "Local, free, and it has the decision hook. Choose Cloudflare when the customer is SaaS-first and we want DNS-based route-bound deception."
+      },
+      {
+        "chose": "Tetragon",
+        "over": "CrowdStrike for the demo",
+        "because": "Free and local. Swap in CrowdStrike for the pitch and for real deployments."
+      }
+    ],
+    "deferred": [
+      {
+        "product": "Splunk and Sentinel",
+        "reason": "Alert plumbing. It adds nothing to the demo, so we add it after the loop is solid."
+      },
+      {
+        "product": "ServiceNow and asset inventory",
+        "reason": "Useful for blast radius and decoy placement, not for the first screen."
+      },
+      {
+        "product": "CyberArk and PAM",
+        "reason": "Later hops in the chain."
+      },
+      {
+        "product": "Cloud audit logs",
+        "reason": "Add AWS CloudTrail as the first extension once the five are in."
+      }
+    ]
+  }
 }

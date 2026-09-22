@@ -99,6 +99,17 @@ both runs without a defense, and both re-attacks failed once rak was on. The att
 up, it re-ran the exploit and kept trying to read the secret and reach the app, and it was denied
 each time. That is the difference between a fix and a speed bump.
 
+## Wiring it into a real estate
+
+Everything above runs against estates we built. To point the same loop at a real company we need
+connectors, and the day-one list is shorter than it looks. The
+[integration catalog](docs/integrations/INTEGRATION-CATALOG.md) has sixteen of them, each with the
+exact data we want, the blue action it unlocks, and how we would demo it against one of these
+estates. Six of them cover the whole loop. The identity provider and source control are where an
+attacker gets in and escalates. The registry is the supply-chain target. The proxy is where the
+decoy goes. Runtime telemetry with a kernel policy is how we take the capability away, and the
+secrets manager is where we plant the canary.
+
 ## The two estates
 
 ### Parser estate
@@ -177,7 +188,10 @@ README.md
 docs/incidents/incidents.json                 the incident catalog, 19 entries
 docs/incidents/INCIDENT-CATALOG.md            generated from the JSON
 docs/incidents/MAPLE-RERUN-2026-09-21.md      parser-estate report
+docs/integrations/integrations.json           day-1 integration catalog, 16 entries
+docs/integrations/INTEGRATION-CATALOG.md      generated from the JSON
 tools_gen_incidents.py
+tools_gen_integrations.py
 experiments/maple-rerun/                      parser estate
 experiments/chaindrop-estate/                 registry-worm estate
 ```

@@ -1,0 +1,1246 @@
+{
+  "title": "Day-1 integration catalog",
+  "updated": "2026-09-21",
+  "purpose": "The connectors and data feeds Maplepot needs so the loop we built in this repo can run against a real estate. The loop has to detect an attacker, divert it, remove its capability, and prove the fix held. Each entry says what data we get, what blue action it unlocks, how we demo it against one of our estates, and why it sits where it does in the order.",
+  "prioritization": {
+    "principle": "We rank a connection by how much of the attack chain it lets us cover, and by whether it can both detect and act. A feed that only alerts is worth less than one that also has a kill switch we can pull, and a feed that names the specific route or credential an attacker used is worth more than one that gives us a generic anomaly.",
+    "criteria": [
+      {
+        "name": "chain coverage",
+        "question": "Which link does it cover: initial access, identity, code and CI, artifact, runtime, or the deception route?",
+        "why": "A chain is only as useful as the links we can see and break. We already demonstrate a full chain in the parser estate, so the gaps are the integrations."
+      },
+      {
+        "name": "precision",
+        "question": "Can it produce a signal that only an attacker generates?",
+        "why": "Our detection thesis is that an attacker-only route or credential beats a behavioral score. We want feeds that can carry that kind of signal."
+      },
+      {
+        "name": "enforcement power",
+        "question": "Can it remove the capability, or only report it?",
+        "why": "The rerun showed capability removal is what makes a fix hold on re-attack. Alert-only integrations are supporting acts."
+      },
+      {
+        "name": "ground truth",
+        "question": "Can we read the outcome to score a run?",
+        "why": "A held verdict has to come from the estate's recorded state. The integration is often where that state lives."
+      },
+      {
+        "name": "access cost",
+        "question": "Is there a read API and a webhook without an agent install?",
+        "why": "Read-first gets us a demo in days, and keeps the change small."
+      },
+      {
+        "name": "blast radius",
+        "question": "What breaks if our action is wrong?",
+        "why": "Write actions on identity and CI can take down production. Those start in dry-run with a TTL and an audit trail."
+      }
+    ],
+    "tiers": {
+      "P0": "Day one. These six cover the whole loop end to end: the route, the identity, the code and CI, the artifact, the runtime, and the secret.",
+      "P1": "First ninety days. These extend coverage to cloud control planes, endpoints, agents, the alert pipeline, and collaboration surfaces.",
+      "P2": "Later. Useful for breadth, deception placement, and prioritization, but not needed to show the loop working."
+    },
+    "day1_demo": "The smallest credible demo uses one attacker route through a proxy, one stolen identity at the IdP, one poisoned artifact at a registry, one canary secret in a vault, and one kernel denial at runtime. That combination lets us show the whole loop, detection to diversion to capability removal to a held re-attack, against the OpenAI and ChainDrop shapes we already run."
+  },
+  "correlation": {
+    "note": "Detection, containment, and verification only line up if the integrations agree on a set of identifiers. We ask every connector for these keys up front, even when it means mapping them ourselves, because a canary hit that cannot be tied to a session cannot trigger the right containment or prove the fix held.",
+    "join_keys": [
+      {
+        "key": "route_id / request_id / trace_id",
+        "used_for": "Bind a detection to the exact route that must be diverted or denied."
+      },
+      {
+        "key": "session_id",
+        "used_for": "Tie a browser session to a canary touch and to a later containment action."
+      },
+      {
+        "key": "principal (issuer + subject)",
+        "used_for": "Resolve a user across the IdP, code host, vault, and cloud."
+      },
+      {
+        "key": "token_id / refresh_token_id / grant_id",
+        "used_for": "Revoke the exact credential an attacker replayed."
+      },
+      {
+        "key": "agent_id / connector_id",
+        "used_for": "Gate a connected AI agent and revoke its connector separately from the user."
+      },
+      {
+        "key": "workload_id / pid / process lineage",
+        "used_for": "Contain the process that read the canary or made the connection."
+      },
+      {
+        "key": "package_id (name@version) / provenance digest",
+        "used_for": "Quarantine a release and prove the real registry stayed clean."
+      },
+      {
+        "key": "secret_id / lease_id",
+        "used_for": "Revoke or rotate the credential that was read."
+      },
+      {
+        "key": "canary_id",
+        "used_for": "Mark our planted credential, document, or hostname so any use is unambiguous."
+      },
+      {
+        "key": "run_id / incident_id",
+        "used_for": "Attach every signal and action to one replay so the report is reproducible."
+      }
+    ]
+  },
+  "guardrails": [
+    "Read-only first. Every connector starts with the smallest read scope, and write access is a separate grant we add only for a specific demo.",
+    "Dry-run enforcement. Show what a control would do, on a copy, before it touches live traffic.",
+    "Blast-radius query before action. Report how many workloads, users, or routes a selector would hit, and refuse above a threshold without a human.",
+    "Reversible with a TTL. Every applied control carries an expiry and a one-call rollback.",
+    "Full audit trail. The signal, the decision, the action, and the outcome are logged together and replayable.",
+    "No credential retention. We read token metadata where the API allows it, and we never store the token itself."
+  ],
+  "integrations": [
+    {
+      "id": "proxy-gateway",
+      "name": "Reverse proxy, API gateway, service mesh, and DNS",
+      "category": "deception_route",
+      "examples": [
+        "Envoy",
+        "Istio",
+        "NGINX",
+        "Traefik",
+        "Cloudflare",
+        "AWS ALB and Route 53",
+        "Cilium"
+      ],
+      "priority": 0,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "This is the control point where route-bound deception is wired. A route that no legitimate principal uses gives us an attacker signal with no false positives, and the same box can send that route to the decoy. Without it, our best idea stays a lab fixture.",
+      "data": {
+        "events": [
+          "request and response metadata",
+          "route match",
+          "client authentication outcome",
+          "mTLS or SPIFFE identity",
+          "upstream selected",
+          "authorization decision from ext_authz",
+          "DNS query and answer"
+        ],
+        "fields": [
+          "request id",
+          "trace id",
+          "host",
+          "path",
+          "method",
+          "route",
+          "client cert or SPIFFE id",
+          "session cookie",
+          "user-agent",
+          "TLS fingerprint",
+          "upstream cluster",
+          "decision",
+          "response code"
+        ],
+        "apis": [
+          "Envoy access log service and tap",
+          "Envoy ext_authz",
+          "Istio telemetry",
+          "NGINX and OpenResty access logs",
+          "Cloudflare Logpush",
+          "ALB access logs",
+          "Route 53 query logging"
+        ],
+        "join_keys": [
+          "route_id",
+          "request_id",
+          "trace_id",
+          "session_id",
+          "client_cert",
+          "workload_id"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "diversion",
+        "prevention",
+        "verification"
+      ],
+      "enforcement": [
+        "route the attacker route to a decoy",
+        "taint the session so its later requests stay on the decoy",
+        "deny egress from a tainted route",
+        "block the request outright"
+      ],
+      "demo": {
+        "incident": "openai-hacktron, and the parser estate we already run",
+        "run": "Wire a route that legitimate clients never take to the maplepot. Send a legitimate client down the sanctioned route and an attacker down the canary route.",
+        "proves": "The real target stays untouched and the decoy records the hit. The legitimate client is unaffected. We show the route decision, the decoy hit, and the empty real state in one report."
+      },
+      "effort": "medium",
+      "risks": [
+        "Inline blocking can break real traffic if the route map is wrong",
+        "TLS fingerprinting needs a termination point we control"
+      ],
+      "fallback": "Start in monitor mode and emit the would-be divert decision as an alert."
+    },
+    {
+      "id": "identity-idp",
+      "name": "Identity provider and OAuth or OIDC plane",
+      "category": "identity",
+      "examples": [
+        "Okta",
+        "Microsoft Entra ID",
+        "Google Workspace",
+        "Auth0",
+        "Keycloak"
+      ],
+      "priority": 0,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "Identity is the pivot in four of our catalog incidents, and it is where the kill switch lives. It gives us the cross-tier redemption signal, the token replay signal, and the ability to revoke the exact grant an attacker is using. Nothing else does both halves.",
+      "data": {
+        "events": [
+          "sign-in",
+          "token grant",
+          "refresh token use",
+          "OAuth consent",
+          "MFA challenge",
+          "session start and end",
+          "cross-application access",
+          "admin role change"
+        ],
+        "fields": [
+          "timestamp",
+          "actor id",
+          "client or application id",
+          "grant type",
+          "scopes",
+          "audience",
+          "issuer",
+          "source IP",
+          "device id",
+          "session id",
+          "token id",
+          "refresh token id",
+          "result",
+          "risk score"
+        ],
+        "apis": [
+          "Okta System Log API and OAuth grants API",
+          "Entra sign-in and audit logs plus Microsoft Graph",
+          "Google Workspace Admin SDK Reports",
+          "standard OIDC and OAuth introspection"
+        ],
+        "join_keys": [
+          "principal",
+          "session_id",
+          "token_id",
+          "issuer and audience",
+          "device_id"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "prevention",
+        "verification"
+      ],
+      "enforcement": [
+        "revoke a refresh token or the whole grant",
+        "sign out the sessions for a user",
+        "require step-up before a cross-tier redemption",
+        "block cross-tier redemption at the policy layer"
+      ],
+      "demo": {
+        "incident": "klue-oauth-icarus and openai-hacktron",
+        "run": "Replay a stolen refresh token from a new device. Serve the decoy integration so the token reaches canary records, then revoke the grant and turn on segmentation, and re-attack.",
+        "proves": "The cross-tier redemption fires as a high-precision detection, the decoy returns canary data, the revoke and segmentation void the replay, and the re-attack fails while a benign sign-in control still works."
+      },
+      "effort": "medium",
+      "risks": [
+        "Revoking the wrong grant logs out real users",
+        "Log schemas differ enough that the join keys need mapping"
+      ],
+      "fallback": "Read logs only and drive enforcement through the app's own IdP."
+    },
+    {
+      "id": "code-cicd",
+      "name": "Source control and CI/CD",
+      "category": "code_pipeline",
+      "examples": [
+        "GitHub and GitHub Actions",
+        "GitLab and GitLab CI",
+        "Jenkins",
+        "Argo CD",
+        "Buildkite",
+        "CircleCI"
+      ],
+      "priority": 0,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "The supply-chain step and the connected-agent pivot both live here. It is the ground truth for whether a merge or a publish landed, and it is where an agent's action can be gated before it ships.",
+      "data": {
+        "events": [
+          "pull request opened, reviewed, and merged",
+          "push",
+          "workflow run and job log",
+          "secret access",
+          "OIDC token exchange",
+          "package publish",
+          "branch protection change",
+          "app and personal token use"
+        ],
+        "fields": [
+          "actor",
+          "actor type (user, app, bot)",
+          "repository",
+          "ref",
+          "commit",
+          "workflow",
+          "job",
+          "runner id",
+          "OIDC claims",
+          "token id",
+          "trigger event",
+          "issue or PR title and body",
+          "package name and version"
+        ],
+        "apis": [
+          "GitHub webhooks, audit log, Actions API, OIDC",
+          "GitLab webhooks and audit events",
+          "Jenkins API",
+          "Argo events"
+        ],
+        "join_keys": [
+          "principal",
+          "agent_id",
+          "token_id",
+          "workload_id",
+          "package_id",
+          "repo and commit"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "prevention",
+        "verification"
+      ],
+      "enforcement": [
+        "require a second reviewer for a protected path",
+        "block a publish from a non-CI identity",
+        "gate an agent action that came from a non-interactive session",
+        "revoke an app or personal token"
+      ],
+      "demo": {
+        "incident": "clinejection, snowflake-copilot-autofix, openai-hacktron",
+        "run": "Replay an attacker-controlled issue title into a workflow, then drive a connected agent to publish. Show the injection alert, the gated publish, and a re-attack that fails.",
+        "proves": "The attacker action is detected by actor type and trigger, the publish is refused without a CI identity, the agent pivot is gated, and the benign maintainer PR still merges."
+      },
+      "effort": "low",
+      "risks": [
+        "Write access to repos or workflows is sensitive",
+        "Many events, so we need to filter to the ones that matter"
+      ],
+      "fallback": "Read-only audit log and webhooks, with enforcement left to existing branch protection."
+    },
+    {
+      "id": "artifact-registry",
+      "name": "Package and artifact registry",
+      "category": "artifact_supply_chain",
+      "examples": [
+        "npm",
+        "PyPI",
+        "JFrog Artifactory",
+        "GitHub Packages",
+        "OCI container registries",
+        "HashiCorp Nomad artifacts"
+      ],
+      "priority": 0,
+      "direction": [
+        "telemetry",
+        "enforcement",
+        "deception"
+      ],
+      "why_priority": "This is the worm's goal and the easiest place to put a decoy that absorbs it. It gives us the publish event, the identity behind it, and the provenance, and it is where we can serve a canary registry that a harvest touches and the real one stays clean.",
+      "data": {
+        "events": [
+          "publish",
+          "deprecate or yank",
+          "token use",
+          "download",
+          "provenance attestation",
+          "package diff",
+          "install lifecycle script"
+        ],
+        "fields": [
+          "name and version",
+          "publisher identity",
+          "token id",
+          "provenance or SLSA attestation",
+          "tarball hash",
+          "dependency changes",
+          "presence of preinstall or postinstall",
+          "source commit or tag"
+        ],
+        "apis": [
+          "npm audit and package webhooks",
+          "Artifactory webhooks and audit",
+          "PyPI",
+          "OCI registry notifications",
+          "Sigstore or SLSA attestations"
+        ],
+        "join_keys": [
+          "package_id",
+          "token_id",
+          "principal",
+          "provenance digest"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "diversion",
+        "prevention",
+        "verification"
+      ],
+      "enforcement": [
+        "quarantine a version",
+        "revoke the publishing token",
+        "block a publish without provenance",
+        "serve a decoy registry for a canary token"
+      ],
+      "demo": {
+        "incident": "chaindrop-npm-worm and tanstack-teampcp",
+        "run": "The install hook harvests a canary token. The publish goes to the decoy registry, and rak denies the credential read and the egress.",
+        "proves": "The real registry records no poisoned release, the decoy records the attempt, the canary use is a tripwire, and a benign CI publish still succeeds."
+      },
+      "effort": "low",
+      "risks": [
+        "A decoy registry has to be trusted by the client, usually through DNS or a token scoped to the decoy",
+        "Yanking a package can break downstream builds"
+      ],
+      "fallback": "Read-only publish audit plus quarantine."
+    },
+    {
+      "id": "runtime-enforcement",
+      "name": "Runtime telemetry and kernel enforcement",
+      "category": "runtime_enforcement",
+      "examples": [
+        "CrowdStrike Falcon",
+        "Microsoft Defender",
+        "Sysdig",
+        "Tetragon",
+        "Auditd",
+        "rak-agent on BPF-LSM or Landlock"
+      ],
+      "priority": 0,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "This is the last mile. Our rerun showed that capability removal is what makes a fix hold, and a policy on the process is the control that does it without patching the bug. It is also the feed that confirms a canary file was actually read.",
+      "data": {
+        "events": [
+          "process exec",
+          "file open and read",
+          "network connect",
+          "process tree",
+          "container and workload identity",
+          "LSM denial",
+          "seccomp kill"
+        ],
+        "fields": [
+          "pid and tgid",
+          "parent pid",
+          "executable",
+          "argv",
+          "file path and inode",
+          "destination IP and port",
+          "container id",
+          "user",
+          "cgroup",
+          "policy decision"
+        ],
+        "apis": [
+          "CrowdStrike event streams",
+          "Defender advanced hunting",
+          "Sysdig and Tetragon eBPF",
+          "Auditd",
+          "LSM and seccomp hooks"
+        ],
+        "join_keys": [
+          "workload_id",
+          "pid and lineage",
+          "canary_id",
+          "secret_id",
+          "route_id"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "prevention",
+        "verification"
+      ],
+      "enforcement": [
+        "deny a file read by inode",
+        "deny an exec outside the allowlist",
+        "deny egress to a destination",
+        "kill the process"
+      ],
+      "demo": {
+        "incident": "openai-hacktron and nextjs-libheif-avif, via the parser estate",
+        "run": "The decoder is hijacked and we want it contained. Apply the rak policy and re-run the exploit.",
+        "proves": "The hijack still lands, the secret read and the egress are denied in the kernel, the account takeover never happens, and the benign decode shows no denials."
+      },
+      "effort": "high",
+      "risks": [
+        "Broad host access and a privileged sensor",
+        "A wrong policy can break a workload, so it needs a dry-run mode"
+      ],
+      "fallback": "Auditd or an unprivileged eBPF collector, with enforcement through rak's Landlock path."
+    },
+    {
+      "id": "secrets-vault",
+      "name": "Secrets manager and credential vault",
+      "category": "secrets",
+      "examples": [
+        "HashiCorp Vault",
+        "AWS Secrets Manager",
+        "Google Secret Manager",
+        "Azure Key Vault",
+        "Kubernetes secrets"
+      ],
+      "priority": 0,
+      "direction": [
+        "telemetry",
+        "enforcement",
+        "deception"
+      ],
+      "why_priority": "Canary credentials are the cheapest high-precision tripwire we have, and the vault is where we revoke the one an attacker stole. It closes the credential access link in the chain and gives us a clean detection with no false positives.",
+      "data": {
+        "events": [
+          "secret read",
+          "lease issue, renew, revoke",
+          "dynamic credential creation",
+          "accessor identity",
+          "path enumeration"
+        ],
+        "fields": [
+          "secret path or id",
+          "principal",
+          "lease id",
+          "ttl",
+          "accessor",
+          "source IP",
+          "client",
+          "mount"
+        ],
+        "apis": [
+          "Vault audit devices and API",
+          "AWS Secrets Manager via CloudTrail",
+          "Kubernetes secrets audit",
+          "cloud secret manager audit logs"
+        ],
+        "join_keys": [
+          "secret_id",
+          "lease_id",
+          "principal",
+          "workload_id"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "prevention",
+        "verification"
+      ],
+      "enforcement": [
+        "revoke a lease",
+        "rotate or rewrap the secret",
+        "plant a canary secret on the attacker route",
+        "deny a read by inode at runtime"
+      ],
+      "demo": {
+        "incident": "chaindrop-npm-worm and openai-hacktron",
+        "run": "Plant a canary secret where only an attacker would reach it. The worm or the RCE reads it, we revoke and rotate, and then re-attack.",
+        "proves": "The canary read is a detection, the decoy value is worthless, the revoke takes effect, and the re-attack cannot read the secret."
+      },
+      "effort": "low",
+      "risks": [
+        "Rotation can break a running app",
+        "A canary secret has to look real enough to be worth reading"
+      ],
+      "fallback": "Static canary files watched by the runtime feed."
+    },
+    {
+      "id": "cloud-control-plane",
+      "name": "Cloud control plane and cloud identity",
+      "category": "cloud_control_plane",
+      "examples": [
+        "AWS CloudTrail and GuardDuty",
+        "Microsoft Azure Activity and Defender for Cloud",
+        "Google Cloud Audit Logs and SCC"
+      ],
+      "priority": 1,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "It is the second half of the identity chain. Once an attacker owns an identity, the cloud control plane is how it reaches Key Vaults, storage, and VMs. We need it to see that move and to revoke the workload identity.",
+      "data": {
+        "events": [
+          "control-plane API call",
+          "role assumption",
+          "key vault or storage access",
+          "metadata service call",
+          "policy change",
+          "anomalous region or user agent"
+        ],
+        "fields": [
+          "principal",
+          "assumed role",
+          "action",
+          "resource",
+          "source IP",
+          "user agent",
+          "session",
+          "error code",
+          "account and subscription"
+        ],
+        "apis": [
+          "CloudTrail and GuardDuty",
+          "Azure Activity and Entra logs",
+          "Google Cloud Audit Logs"
+        ],
+        "join_keys": [
+          "principal",
+          "session_id",
+          "resource_id",
+          "role",
+          "workload_id"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "prevention",
+        "verification"
+      ],
+      "enforcement": [
+        "attach a deny policy to a session",
+        "disable an access key",
+        "revoke a role session",
+        "apply an SCP or permission boundary"
+      ],
+      "demo": {
+        "incident": "storm2949-identity-cloud and salesloft-drift",
+        "run": "Replay a compromised identity making control-plane calls toward a decoy key vault and storage account.",
+        "proves": "The control-plane anomaly is detected, the decoy resources absorb the access, the deny policy stops the session, and a benign admin action is unaffected."
+      },
+      "effort": "medium",
+      "risks": [
+        "High-privilege read scope",
+        "Control-plane log volume is large"
+      ],
+      "fallback": "Read-only logs with enforcement through the identity provider."
+    },
+    {
+      "id": "endpoint-edr",
+      "name": "Endpoint detection and response",
+      "category": "runtime_enforcement",
+      "examples": [
+        "CrowdStrike Falcon",
+        "Microsoft Defender for Endpoint",
+        "SentinelOne",
+        "VMware Carbon Black"
+      ],
+      "priority": 1,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "The npm and developer-tool incidents land on workstations, not servers. Endpoint telemetry is how we see a lifecycle script spawn a shell on a developer's machine, and it is where we can isolate the host.",
+      "data": {
+        "events": [
+          "process execution",
+          "file creation",
+          "network connection",
+          "registry or launch agent change",
+          "device timeline"
+        ],
+        "fields": [
+          "device id",
+          "user",
+          "process tree",
+          "command line",
+          "file hash and path",
+          "destination",
+          "parent process",
+          "sensor verdict"
+        ],
+        "apis": [
+          "Falcon event streams",
+          "Defender advanced hunting",
+          "SentinelOne API",
+          "EDR response APIs"
+        ],
+        "join_keys": [
+          "device_id",
+          "principal",
+          "pid and lineage",
+          "workload_id"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "prevention",
+        "verification"
+      ],
+      "enforcement": [
+        "isolate the host",
+        "kill the process tree",
+        "quarantine the file",
+        "run a remediation script"
+      ],
+      "demo": {
+        "incident": "axios-npm, chaindrop-npm-worm, and vscode-token-theft",
+        "run": "Run the stand-in worm on a developer workstation image and watch the endpoint feed.",
+        "proves": "The lifecycle script and the credential file reads show up as a process lineage, the host isolates cleanly, and the clean install produces no alert."
+      },
+      "effort": "medium",
+      "risks": [
+        "Agent deployment and host access",
+        "Endpoint actions are disruptive"
+      ],
+      "fallback": "eBPF on the build runner, which covers most of the CI half."
+    },
+    {
+      "id": "agent-platform",
+      "name": "AI agent gateway, MCP registry, and coding assistants",
+      "category": "agent_platform",
+      "examples": [
+        "LiteLLM",
+        "MCP servers and registries",
+        "GitHub Copilot",
+        "Cline",
+        "Cursor",
+        "internal agent frameworks"
+      ],
+      "priority": 1,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "A connected agent is a new privileged principal, and several catalog incidents treat it as the pivot. We need the agent's identity and its tool calls, separate from the user's, to gate an action that came from a hijacked session.",
+      "data": {
+        "events": [
+          "tool call",
+          "tool description or schema fetched",
+          "agent session start",
+          "connector grant",
+          "prompt and completion metadata",
+          "egress destination"
+        ],
+        "fields": [
+          "agent id",
+          "connector id",
+          "user behind the agent",
+          "session interactivity",
+          "tool name and arguments",
+          "server or model",
+          "egress host",
+          "scope or grant"
+        ],
+        "apis": [
+          "LiteLLM proxy logs",
+          "MCP server registry and tool listing",
+          "coding-assistant audit APIs",
+          "agent framework telemetry"
+        ],
+        "join_keys": [
+          "agent_id",
+          "connector_id",
+          "session_id",
+          "tool",
+          "principal"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "prevention",
+        "verification"
+      ],
+      "enforcement": [
+        "gate an agent action that came from a non-interactive session",
+        "revoke a connector grant",
+        "put the agent process on an egress allowlist",
+        "disable a poisoned MCP server"
+      ],
+      "demo": {
+        "incident": "deadbugz-mcp, clinejection, and gitlost-github-agentic",
+        "run": "Feed a poisoned tool description to an agent, then gate its privileged action and contain its process.",
+        "proves": "The poisoned tool call is detected, the gated action is refused, the agent cannot read the credential files or reach the exfiltration endpoint, and a normal tool call still works."
+      },
+      "effort": "medium",
+      "risks": [
+        "The space moves fast and APIs are unstable",
+        "Prompt payloads are large and sensitive"
+      ],
+      "fallback": "Contain the agent as a process with the runtime feed and leave tool-level detection for later."
+    },
+    {
+      "id": "detection-response",
+      "name": "SIEM and SOAR",
+      "category": "detection_response",
+      "examples": [
+        "Splunk",
+        "Microsoft Sentinel",
+        "Elastic",
+        "Tines",
+        "Torq",
+        "XSOAR"
+      ],
+      "priority": 1,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "Our alerts are only useful when they reach the tools a security team already watches, and the response playbooks are the natural place to trigger containment. It is the integration that makes the product fit an existing workflow.",
+      "data": {
+        "events": [
+          "our alerts and decisions",
+          "correlation lookups",
+          "case creation",
+          "playbook execution"
+        ],
+        "fields": [
+          "alert id",
+          "detection source",
+          "severity",
+          "run id",
+          "route and session keys",
+          "action taken",
+          "outcome"
+        ],
+        "apis": [
+          "Splunk HEC and saved searches",
+          "Sentinel ingestion and Logic Apps",
+          "Elastic ingest",
+          "SOAR playbook triggers",
+          "webhooks"
+        ],
+        "join_keys": [
+          "run_id",
+          "incident_id",
+          "route_id",
+          "session_id",
+          "principal"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "verification"
+      ],
+      "enforcement": [
+        "trigger a containment playbook",
+        "open a case",
+        "enrich an alert with asset and identity context"
+      ],
+      "demo": {
+        "incident": "any estate run",
+        "run": "Push the D2, D4, D5, and D6 alerts from a parser-estate run into the SIEM and run a playbook.",
+        "proves": "The alerts arrive with the join keys intact, the playbook fires the containment action, and the re-attack result lands back on the same case."
+      },
+      "effort": "low",
+      "risks": [
+        "Alert schema mapping per platform",
+        "Ingestion cost at volume"
+      ],
+      "fallback": "A webhook and a plain JSON schema that any platform can ingest."
+    },
+    {
+      "id": "collaboration-canary",
+      "name": "Collaboration and email",
+      "category": "collaboration",
+      "examples": [
+        "Slack",
+        "Microsoft 365 and Exchange",
+        "Google Workspace and Drive",
+        "Confluence",
+        "Notion"
+      ],
+      "priority": 1,
+      "direction": [
+        "telemetry",
+        "enforcement",
+        "deception"
+      ],
+      "why_priority": "These surfaces carry the breadcrumbs and the data that attackers go after next. A canary document or a honey credential in a share is easy to plant and gives a clean signal when it is touched, and the same feed shows the exfiltration attempt.",
+      "data": {
+        "events": [
+          "file share",
+          "external share",
+          "message and file access",
+          "DLP match",
+          "login from a new device",
+          "mail rule creation"
+        ],
+        "fields": [
+          "principal",
+          "file id and name",
+          "share target",
+          "external domain",
+          "session id",
+          "device",
+          "DLP policy",
+          "message metadata"
+        ],
+        "apis": [
+          "Slack Audit Logs and Events",
+          "Microsoft Graph and audit logs",
+          "Google Drive Activity API",
+          "email gateway logs"
+        ],
+        "join_keys": [
+          "principal",
+          "file_id",
+          "session_id",
+          "canary_id"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "diversion",
+        "prevention"
+      ],
+      "enforcement": [
+        "revoke an external share",
+        "watermark or restrict a file",
+        "block a domain",
+        "remove a malicious mail rule"
+      ],
+      "demo": {
+        "incident": "the identity and collab stages of openai-hacktron and klue-oauth-icarus",
+        "run": "Plant a canary document in a shared drive and a honey credential in a message, then let the attacker identity touch them.",
+        "proves": "The touch produces a high-precision alert tied to the session, the share and the credential are revoked, and a legitimate user opening the same folder produces nothing."
+      },
+      "effort": "low",
+      "risks": [
+        "Privacy and data handling, since content is sensitive",
+        "Planted canaries need lifecycle management"
+      ],
+      "fallback": "Read-only admin audit logs."
+    },
+    {
+      "id": "identity-governance",
+      "name": "SaaS security posture and CASB",
+      "category": "identity",
+      "examples": [
+        "Okta Identity Governance",
+        "Microsoft Defender for Cloud Apps",
+        "Netskope",
+        "AppOmni"
+      ],
+      "priority": 2,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "It tells us which third-party apps hold which scopes, which is exactly the OAuth supply-chain risk in two catalog incidents. It is valuable context, but the core detection can run without it.",
+      "data": {
+        "events": [
+          "connected app inventory",
+          "consent grant",
+          "scope change",
+          "dormant app",
+          "anomalous OAuth activity"
+        ],
+        "fields": [
+          "app id",
+          "scopes",
+          "users granted",
+          "publisher",
+          "last used",
+          "risk rating"
+        ],
+        "apis": [
+          "Okta apps and grants",
+          "Defender for Cloud Apps API",
+          "CASB APIs"
+        ],
+        "join_keys": [
+          "app_id",
+          "principal",
+          "token_id",
+          "scope"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "prevention"
+      ],
+      "enforcement": [
+        "revoke an OAuth app",
+        "reduce scopes",
+        "block a publisher"
+      ],
+      "demo": {
+        "incident": "klue-oauth-icarus and salesloft-drift",
+        "run": "Inventory the connected apps, find the over-scoped integration, and revoke it during the replay.",
+        "proves": "The over-scoped app is found before the replay, the revoke removes the path, and the re-attack fails."
+      },
+      "effort": "medium",
+      "risks": [
+        "Read scope across all SaaS apps"
+      ],
+      "fallback": "Manual app inventory from the IdP."
+    },
+    {
+      "id": "network-enforcement",
+      "name": "Network policy and firewalls",
+      "category": "deception_route",
+      "examples": [
+        "Cloud security groups and NACLs",
+        "Kubernetes network policy",
+        "Cilium",
+        "Palo Alto",
+        "iptables and nftables"
+      ],
+      "priority": 2,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "It is how we wall off the real estate once a canary fires and how we enforce an egress allowlist. It supports the diversion story and does not create it, so it sits after the proxy.",
+      "data": {
+        "events": [
+          "flow log",
+          "policy decision",
+          "denied connection",
+          "DNS query"
+        ],
+        "fields": [
+          "source and destination IP",
+          "port",
+          "protocol",
+          "workload",
+          "policy rule",
+          "verdict"
+        ],
+        "apis": [
+          "VPC flow logs",
+          "Cilium and Calico policy APIs",
+          "firewall APIs",
+          "nftables"
+        ],
+        "join_keys": [
+          "workload_id",
+          "route_id",
+          "destination"
+        ]
+      },
+      "blue_capabilities": [
+        "prevention",
+        "diversion",
+        "verification"
+      ],
+      "enforcement": [
+        "deny egress to a destination",
+        "wall off the real target for a tainted session",
+        "remove a route"
+      ],
+      "demo": {
+        "incident": "openai-hacktron and nextjs-libheif-avif",
+        "run": "After the canary fires, deny the tainted workload any route to the real target and re-run the attack.",
+        "proves": "The attack is contained, the decoy is the only reachable service, and the held verdict comes from the real state."
+      },
+      "effort": "medium",
+      "risks": [
+        "A bad rule can cause an outage"
+      ],
+      "fallback": "Host-level egress policy through the runtime feed."
+    },
+    {
+      "id": "asset-risk",
+      "name": "Asset inventory, vulnerability, and SBOM",
+      "category": "asset_risk",
+      "examples": [
+        "ServiceNow CMDB",
+        "Wiz",
+        "Tenable",
+        "Snyk",
+        "CycloneDX and SPDX SBOMs"
+      ],
+      "priority": 2,
+      "direction": [
+        "telemetry"
+      ],
+      "why_priority": "By itself it neither detects nor stops anything. It tells us where to put a decoy and how wide a control would land, which makes the loop safer at scale.",
+      "data": {
+        "events": [
+          "asset inventory",
+          "ownership",
+          "exposure",
+          "vulnerability finding",
+          "dependency graph"
+        ],
+        "fields": [
+          "asset id",
+          "owner",
+          "technology",
+          "network exposure",
+          "CVE or finding",
+          "dependency path",
+          "criticality"
+        ],
+        "apis": [
+          "CMDB APIs",
+          "scanner APIs",
+          "SBOM files",
+          "cloud asset inventory"
+        ],
+        "join_keys": [
+          "asset_id",
+          "workload_id",
+          "package_id",
+          "owner"
+        ]
+      },
+      "blue_capabilities": [
+        "verification"
+      ],
+      "enforcement": [],
+      "demo": {
+        "incident": "asset selection across the catalog",
+        "run": "Before applying a control, ask which assets it would hit and which asset is worth decoying.",
+        "proves": "The blast-radius number is attached to the control decision, and the decoy lands on the asset an attacker would want."
+      },
+      "effort": "medium",
+      "risks": [
+        "Data quality, since stale inventories give wrong answers"
+      ],
+      "fallback": "A hand-maintained asset list for the demo estate."
+    },
+    {
+      "id": "pam-bastion",
+      "name": "Privileged access management and bastion",
+      "category": "identity",
+      "examples": [
+        "CyberArk",
+        "Teleport",
+        "HashiCorp Boundary",
+        "AWS SSM Session Manager"
+      ],
+      "priority": 2,
+      "direction": [
+        "telemetry",
+        "enforcement"
+      ],
+      "why_priority": "The admin path is a later hop in several chains. Recording privileged sessions and terminating one is useful, but it is not where the first three links live.",
+      "data": {
+        "events": [
+          "privileged session start",
+          "session recording",
+          "command",
+          "credential checkout",
+          "approval"
+        ],
+        "fields": [
+          "principal",
+          "target host",
+          "session id",
+          "commands",
+          "approval id",
+          "duration"
+        ],
+        "apis": [
+          "PAM APIs and session recordings",
+          "SSM session logs",
+          "Teleport audit"
+        ],
+        "join_keys": [
+          "principal",
+          "session_id",
+          "target",
+          "approval_id"
+        ]
+      },
+      "blue_capabilities": [
+        "detection",
+        "prevention"
+      ],
+      "enforcement": [
+        "terminate a live privileged session",
+        "require approval",
+        "rotate a checked-out credential"
+      ],
+      "demo": {
+        "incident": "the post-RCE admin stage",
+        "run": "Replay an attacker using a checked-out credential on a bastion and terminate the session mid-chain.",
+        "proves": "The privileged session is recorded and cut, and the legitimate operator's session is untouched."
+      },
+      "effort": "medium",
+      "risks": [
+        "Cutting a session can interrupt remediation work"
+      ],
+      "fallback": "IdP session revocation."
+    },
+    {
+      "id": "threat-intel",
+      "name": "Threat intelligence and exploited-vulnerability feeds",
+      "category": "asset_risk",
+      "examples": [
+        "CISA KEV",
+        "vendor advisories",
+        "open-source IOC feeds",
+        "internal incident catalog"
+      ],
+      "priority": 2,
+      "direction": [
+        "telemetry"
+      ],
+      "why_priority": "It decides what we emulate next, not what we block. We already keep a curated incident catalog in this repo, and a feed automates the refresh.",
+      "data": {
+        "events": [
+          "new exploited vulnerability",
+          "new incident write-up",
+          "IOC",
+          "TTP"
+        ],
+        "fields": [
+          "CVE",
+          "product",
+          "date added",
+          "actor",
+          "TTP",
+          "source URL"
+        ],
+        "apis": [
+          "CISA KEV JSON",
+          "vendor advisory feeds",
+          "research blog feeds"
+        ],
+        "join_keys": [
+          "cve",
+          "incident_id",
+          "ttp"
+        ]
+      },
+      "blue_capabilities": [
+        "verification"
+      ],
+      "enforcement": [],
+      "demo": {
+        "incident": "catalog maintenance",
+        "run": "Refresh the incident catalog from the feed and pick the next estate to build.",
+        "proves": "The catalog stays current and every test estate traces to a real incident."
+      },
+      "effort": "low",
+      "risks": [
+        "Feed noise",
+        "Duplicate incidents"
+      ],
+      "fallback": "The manual catalog in this repo."
+    }
+  ]
+}
